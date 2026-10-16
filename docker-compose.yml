@@ -1,0 +1,101 @@
+# Production-shaped stack. Dev-only concerns (bind mounts, reload servers) live
+# in docker-compose.override.yml, which Compose applies automatically.
+
+x-api-env: &api-env
+  POSTGRES_USER: ${POSTGRES_USER:-postgres}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+  POSTGRES_DB: ${POSTGRES_DB:-healthcare}
+  # Inside the network the database is reachable by service name, whatever the
+  # host .env says for running the API locally.
+  POSTGRES_HOST: db
+  POSTGRES_PORT: 5432
+  APP_ENV: ${APP_ENV:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-healthcare}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # The other services wait on this, not just on the container starting -
+      # otherwise the first boot races Postgres accepting connections.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-healthcare}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # One-shot: brings the schema to head and exits. Keeping migrations out of the
+  # API's startup means two API replicas can never race the same DDL.
+  migrate:
+    build:
+      context: ./backend
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      <<: *api-env
+      SEED_ON_STARTUP: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      <<: *api-env
+      SEED_ON_STARTUP: ${SEED_ON_STARTUP:-true}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # python, not curl: the slim image has no curl and adding one would mean
+      # shipping a network tool we do not otherwise need.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  web:
+    build:
+      context: ./frontend
+      target: runtime
+      args:
+        # Baked in at build time; empty means same-origin, which nginx proxies.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-5173}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  pgdata:

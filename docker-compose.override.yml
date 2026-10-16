@@ -1,0 +1,40 @@
+# Applied automatically by `docker compose up`, so local development gets hot
+# reload while docker-compose.yml keeps describing the production shape.
+
+services:
+  api:
+    command:
+      ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      # Source is mounted so edits reload without a rebuild. The venv lives at
+      # /opt/venv, outside /app, so the mount cannot shadow installed packages.
+      - ./backend/app:/app/app
+      - ./backend/migrations:/app/migrations
+      - ./backend/alembic.ini:/app/alembic.ini
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+
+  web:
+    build:
+      # The dev stage has node and the source mounted, so Vite can hot reload;
+      # the production stage is nginx and cannot run a dev server.
+      target: dev
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+    # !override replaces the base list instead of appending to it: without it
+    # the service would try to publish host 5173 twice (5173:80 and 5173:5173).
+    ports: !override
+      - "${WEB_PORT:-5173}:5173"
+    environment:
+      # Inside the network the API answers to its service name.
+      VITE_API_PROXY: http://api:8000
+    volumes:
+      - ./frontend:/app
+      # Anonymous volume keeps the image's node_modules, so a host install (or
+      # a different platform's binaries) cannot shadow them.
+      - /app/node_modules
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5173/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s

@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+/* Tokens, not duplicated class lists: theming is one block of overrides. */
+/* Status colours are re-stepped so adjacent states stay separable under
+   protan/deutan simulation - verified with the dataviz palette validator, not
+   by eye. Lightness, not hue, carries that separation. */
+@theme {
+  --color-surface: oklch(99% 0 0);
+  --color-surface-raised: oklch(100% 0 0);
+  --color-surface-sunken: oklch(96.5% 0.003 250);
+  --color-border-subtle: oklch(91% 0.005 250);
+  --color-content: oklch(23% 0.015 250);
+  --color-content-muted: oklch(52% 0.015 250);
+  --color-accent: oklch(55% 0.13 250);
+  --color-accent-contrast: oklch(99% 0 0);
+  --color-status-active: oklch(50% 0.14 152);
+  --color-status-inactive: oklch(74% 0.14 70);
+  --color-status-discharged: oklch(58% 0.11 255);
+  --color-danger: oklch(55% 0.19 20);
+}
+
+:root[data-theme="dark"] {
+  --color-surface: oklch(19% 0.012 250);
+  --color-surface-raised: oklch(23% 0.014 250);
+  --color-surface-sunken: oklch(15% 0.01 250);
+  --color-border-subtle: oklch(32% 0.015 250);
+  --color-content: oklch(95% 0.005 250);
+  --color-content-muted: oklch(70% 0.015 250);
+  --color-accent: oklch(70% 0.13 250);
+  --color-accent-contrast: oklch(18% 0.015 250);
+  --color-status-active: oklch(52% 0.14 152);
+  --color-status-inactive: oklch(66% 0.14 70);
+  --color-status-discharged: oklch(60% 0.11 255);
+  --color-danger: oklch(68% 0.18 20);
+}
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-content);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Visible focus for keyboard users, on every interactive element. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
