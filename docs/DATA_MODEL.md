@@ -170,5 +170,8 @@ patients chosen to exercise the UI rather than to look tidy:
   hand
 
 The seed is idempotent. It checks whether any patients exist and returns early if
-so, and it never truncates. Restarting the stack is therefore safe, and
+so, and it never truncates. It assumes a single API instance starts at a time,
+which holds here because compose runs one; two starting together could both see
+an empty table. Seeding is development data, so that is documented rather than
+solved with an advisory lock. Restarting the stack is therefore safe, and
 `make reset` is the explicit way to start from empty.

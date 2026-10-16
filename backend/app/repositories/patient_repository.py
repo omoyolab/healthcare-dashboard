@@ -41,17 +41,22 @@ def search_expression() -> ColumnElement[str]:
 class PatientRepository(BaseRepository[Patient]):
     model = Patient
 
-    async def list_page(self, query: PatientListQuery) -> tuple[Sequence[Patient], int]:
-        """Returns one page plus the total matching count, in a single statement."""
-        # A window count rides along with the rows, so there is no second query
-        # and no consistency gap between the page and its total.
-        total = func.count().over().label("total")
-        stmt = select(Patient, total)
-
+    @staticmethod
+    def _filters(query: PatientListQuery) -> list[ColumnElement[bool]]:
+        """Shared by the page query and the fallback count, so they cannot drift."""
+        conditions: list[ColumnElement[bool]] = []
         if query.q:
-            stmt = stmt.where(search_expression().ilike(f"%{query.q}%"))
+            conditions.append(search_expression().ilike(f"%{query.q}%"))
         if query.status:
-            stmt = stmt.where(Patient.status.in_(query.status))
+            conditions.append(Patient.status.in_(query.status))
+        return conditions
+
+    async def list_page(self, query: PatientListQuery) -> tuple[Sequence[Patient], int]:
+        """Returns one page plus the total matching count."""
+        # A window count rides along with the rows, so the usual case needs no
+        # second query and has no consistency gap between page and total.
+        total = func.count().over().label("total")
+        stmt = select(Patient, total).where(*self._filters(query))
 
         column = SORT_COLUMNS[query.sort_field]
         ordering = column.desc() if query.descending else column.asc()
@@ -61,9 +66,14 @@ class PatientRepository(BaseRepository[Patient]):
         stmt = stmt.offset(query.page_request.offset).limit(query.page_request.limit)
 
         rows = (await self._session.execute(stmt)).all()
-        if not rows:
-            return [], 0
-        return [row[0] for row in rows], int(rows[0].total)
+        if rows:
+            return [row[0] for row in rows], int(rows[0].total)
+
+        # Past the last page there are no rows, so the window count comes back
+        # with them. Count separately rather than reporting a total of zero
+        # while earlier pages hold matches.
+        count_stmt = select(func.count()).select_from(Patient).where(*self._filters(query))
+        return [], int(await self._session.scalar(count_stmt) or 0)
 
     async def stats(self) -> dict[str, int]:
         """Every dashboard count in one statement, using FILTER aggregates."""

@@ -103,3 +103,22 @@ def test_never_seen_is_stated_rather_than_omitted() -> None:
     paragraphs = build_narrative(patient, [make_note(28, "Seen.")], age=45)
 
     assert "No visit has been recorded." in paragraphs
+
+
+def test_narrative_says_how_many_notes_it_actually_read() -> None:
+    # 80 on file, only the 50 most recent fetched: the dates describe those 50.
+    notes = [make_note(day, f"note {day}") for day in range(28, 8, -1)]
+
+    text = joined(build_narrative(make_patient(), notes, age=45, total_notes=80))
+
+    assert "80 clinical notes are on file." in text
+    assert f"The {len(notes)} most recent span" in text
+
+
+def test_narrative_omits_the_qualifier_when_it_read_everything() -> None:
+    notes = [make_note(28, "newest"), make_note(2, "oldest")]
+
+    text = joined(build_narrative(make_patient(), notes, age=45, total_notes=2))
+
+    assert "2 clinical notes are on file, spanning" in text
+    assert "most recent span" not in text

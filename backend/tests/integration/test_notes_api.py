@@ -123,3 +123,17 @@ def test_summary_reflects_notes_and_updates_when_one_is_added(client: TestClient
 
 def test_summary_for_unknown_patient_is_404(client: TestClient) -> None:
     assert client.get(f"/api/v1/patients/{UNKNOWN}/summary").status_code == 404
+
+
+def test_note_page_beyond_the_last_still_reports_the_total(client: TestClient) -> None:
+    patient_id = make_patient(client)
+    for index in range(3):
+        client.post(f"/api/v1/patients/{patient_id}/notes", json=note_payload(content=f"n{index}"))
+
+    body = client.get(
+        f"/api/v1/patients/{patient_id}/notes", params={"page": 42, "page_size": 2}
+    ).json()
+
+    assert body["items"] == []
+    assert body["total"] == 3
+    assert body["total_pages"] == 2

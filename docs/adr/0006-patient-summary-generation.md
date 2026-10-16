@@ -52,6 +52,27 @@ deleted. That is cache invalidation for a feature that does not need it.
 **Streaming the response.** Unnecessary for a few hundred words, and it
 complicates the error contract for no measured gain.
 
+## What the narrative does and does not do
+
+It describes the record: who the patient is, their conditions and allergies, how
+many notes exist, the dates those notes span, when they were last seen, and the
+most recent note quoted in full.
+
+It does not interpret the notes. With six notes describing a treatment
+progression, it reports that six notes exist and quotes the latest; it does not
+say "glucose control has improved steadily since March". Summarising meaning
+across free clinical text is the part a template cannot do honestly, and a model
+could only do by inference the record does not contain.
+
+Only the most recent 50 notes are read, to bound the work. When more exist the
+wording says so ("80 clinical notes are on file. The 50 most recent span ..."),
+rather than implying the dates cover the whole history.
+
+A reader therefore gets an accurate index of the record plus the latest entry,
+and still opens the notes list for the clinical story. That is the honest
+boundary of a deterministic summary, and it is the reason the response says
+`generated_by: "template"`.
+
 ## Consequences
 
 - `make up` on a clean clone produces working summaries with no key, no network

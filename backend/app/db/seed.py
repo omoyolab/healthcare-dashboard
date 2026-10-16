@@ -361,7 +361,14 @@ SEED_PATIENTS: tuple[SeedPatient, ...] = (
 
 
 async def seed_if_empty(session: AsyncSession) -> int:
-    """Insert seed data when the table is empty. Returns rows created."""
+    """Insert seed data when the table is empty. Returns rows created.
+
+    Assumes one API instance starts at a time, which is true for this stack:
+    compose runs a single api service. Two instances starting together could
+    both see an empty table and both insert. The fix would be an advisory lock
+    or moving seeding into the one-shot migrate service; neither is worth the
+    machinery for development data.
+    """
     existing = await session.scalar(select(func.count()).select_from(Patient))
     if existing:
         # Never truncate: restarting the stack must not destroy local data.

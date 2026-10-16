@@ -25,9 +25,17 @@ class NoteRepository(BaseRepository[ClinicalNote]):
             .limit(page.limit)
         )
         rows = (await self._session.execute(stmt)).all()
-        if not rows:
-            return [], 0
-        return [row[0] for row in rows], int(rows[0].total)
+        if rows:
+            return [row[0] for row in rows], int(rows[0].total)
+
+        # Same as the patient list: an out-of-range page must still report how
+        # many notes exist.
+        count_stmt = (
+            select(func.count())
+            .select_from(ClinicalNote)
+            .where(ClinicalNote.patient_id == patient_id)
+        )
+        return [], int(await self._session.scalar(count_stmt) or 0)
 
     async def get_for_patient(
         self, patient_id: uuid.UUID, note_id: uuid.UUID

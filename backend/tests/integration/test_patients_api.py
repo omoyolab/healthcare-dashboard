@@ -195,3 +195,37 @@ def test_stats_counts_by_status_and_visits(client: TestClient) -> None:
 def test_stats_route_is_not_parsed_as_a_patient_id(client: TestClient) -> None:
     # Ordering bug guard: /patients/stats must not hit /patients/{patient_id}.
     assert client.get("/api/v1/patients/stats").status_code == 200
+
+
+def test_page_beyond_the_last_still_reports_the_total(client: TestClient) -> None:
+    for index in range(3):
+        create(client, email=f"p{index}@example.com", last_name=f"Name{index}")
+
+    body = client.get("/api/v1/patients", params={"page": 99, "page_size": 2}).json()
+
+    # The window count comes back with the rows, so an empty page used to
+    # report a total of zero while earlier pages held matches.
+    assert body["items"] == []
+    assert body["total"] == 3
+    assert body["total_pages"] == 2
+    assert body["has_previous"] is True
+    assert body["has_next"] is False
+
+
+def test_out_of_range_page_respects_the_filters(client: TestClient) -> None:
+    create(client, email="a@example.com", status="active")
+    create(client, email="b@example.com", status="inactive")
+
+    body = client.get("/api/v1/patients", params={"page": 50, "status": "active"}).json()
+
+    assert body["items"] == []
+    assert body["total"] == 1
+
+
+def test_out_of_range_search_page_counts_only_matches(client: TestClient) -> None:
+    create(client, first_name="Rosa", last_name="Delgado", email="r@example.com")
+    create(client, first_name="Mei", last_name="Tanaka", email="m@example.com")
+
+    body = client.get("/api/v1/patients", params={"page": 9, "q": "delgado"}).json()
+
+    assert body["total"] == 1

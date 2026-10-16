@@ -27,8 +27,15 @@ def _format_list(items: list[str]) -> str:
     return f"{', '.join(items[:-1])} and {items[-1]}"
 
 
-def build_narrative(patient: Patient, notes: list[ClinicalNote], age: int) -> list[str]:
-    """Short paragraphs rather than one block of text."""
+def build_narrative(
+    patient: Patient, notes: list[ClinicalNote], age: int, total_notes: int | None = None
+) -> list[str]:
+    """Short paragraphs rather than one block of text.
+
+    total_notes is the number on file, which can exceed the notes passed in:
+    only the most recent NARRATED_NOTES are read, and the wording has to say so
+    rather than implying the dates cover everything.
+    """
     name = f"{patient.first_name} {patient.last_name}"
     blood = f", blood type {patient.blood_type.value}" if patient.blood_type else ""
 
@@ -45,16 +52,22 @@ def build_narrative(patient: Patient, notes: list[ClinicalNote], age: int) -> li
 
     # Notes arrive newest first.
     newest, oldest = notes[0], notes[-1]
-    if len(notes) == 1:
+    on_file = total_notes if total_notes is not None else len(notes)
+    span = (
+        f"{oldest.authored_at.strftime(DATE_FORMAT)} to {newest.authored_at.strftime(DATE_FORMAT)}"
+    )
+
+    if on_file == 1:
         paragraphs.append(
             f"One clinical note is on file, written {newest.authored_at.strftime(DATE_FORMAT)}."
         )
-    else:
+    elif on_file > len(notes):
+        # Only the most recent were read, so the dates describe those, not all.
         paragraphs.append(
-            f"{len(notes)} clinical notes are on file, spanning "
-            f"{oldest.authored_at.strftime(DATE_FORMAT)} to "
-            f"{newest.authored_at.strftime(DATE_FORMAT)}."
+            f"{on_file} clinical notes are on file. The {len(notes)} most recent span {span}."
         )
+    else:
+        paragraphs.append(f"{on_file} clinical notes are on file, spanning {span}.")
 
     # Its own line: when the patient was seen is a separate fact from how many
     # notes exist.
@@ -89,7 +102,7 @@ class SummaryService:
             name=f"{patient.first_name} {patient.last_name}",
             age=age,
             blood_type=patient.blood_type,
-            narrative=build_narrative(patient, list(notes), age),
+            narrative=build_narrative(patient, list(notes), age, total),
             conditions=list(patient.conditions),
             allergies=list(patient.allergies),
             note_count=total,
