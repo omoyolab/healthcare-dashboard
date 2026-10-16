@@ -22,8 +22,9 @@ up: ## Start the whole stack (migrates and seeds automatically)
 down: ## Stop the stack, keep the data
 	$(COMPOSE) down
 
-reset: ## Stop the stack and delete the database volume
+reset: ## Delete the database volume and start again from an empty database
 	$(COMPOSE) down -v
+	$(MAKE) up
 
 logs: ## Tail logs for every service
 	$(COMPOSE) logs -f
