@@ -1,3 +1,5 @@
+import { ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
+
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, Td, Th } from "@/components/ui/table";
 import { cn } from "@/lib/utils/cn";
@@ -46,7 +48,15 @@ export function PatientTable({ patients, sort, onSort, isPending }: PatientTable
                     )}
                   >
                     {column.label}
-                    <span aria-hidden>{isSorted ? (descending ? "▾" : "▴") : "↕"}</span>
+                    {isSorted ? (
+                      descending ? (
+                        <ChevronDown aria-hidden className="size-3.5" />
+                      ) : (
+                        <ChevronUp aria-hidden className="size-3.5" />
+                      )
+                    ) : (
+                      <ChevronsUpDown aria-hidden className="size-3.5 opacity-50" />
+                    )}
                   </button>
                 ) : (
                   column.label

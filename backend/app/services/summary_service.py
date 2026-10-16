@@ -27,47 +27,47 @@ def _format_list(items: list[str]) -> str:
     return f"{', '.join(items[:-1])} and {items[-1]}"
 
 
-def build_narrative(patient: Patient, notes: list[ClinicalNote], age: int) -> str:
+def build_narrative(patient: Patient, notes: list[ClinicalNote], age: int) -> list[str]:
+    """Short paragraphs rather than one block of text."""
     name = f"{patient.first_name} {patient.last_name}"
-    blood = f" with blood type {patient.blood_type.value}" if patient.blood_type else ""
-    parts = [f"{name} is a {age}-year-old patient{blood}, currently {patient.status.value}."]
+    blood = f", blood type {patient.blood_type.value}" if patient.blood_type else ""
 
+    who = f"{name} is a {age}-year-old patient{blood}, currently {patient.status.value}."
     if patient.conditions:
-        parts.append(f"Care is ongoing for {_format_list(patient.conditions)}.")
-    else:
-        parts.append("No ongoing conditions are recorded.")
-
-    parts.append(
-        f"Documented allergies: {_format_list(patient.allergies)}."
-        if patient.allergies
-        else "No known allergies are recorded."
-    )
+        who += f" Care is ongoing for {_format_list(patient.conditions)}."
+    if patient.allergies:
+        who += f" Allergies are recorded for {_format_list(patient.allergies)}."
+    paragraphs = [who]
 
     if not notes:
-        parts.append("No clinical notes are on file yet.")
-        return " ".join(parts)
+        paragraphs.append("No clinical notes are on file yet.")
+        return paragraphs
 
     # Notes arrive newest first.
     newest, oldest = notes[0], notes[-1]
     if len(notes) == 1:
-        parts.append(
-            f"A single clinical note from {newest.authored_at.strftime(DATE_FORMAT)} reports: "
-            f"{newest.content}"
+        paragraphs.append(
+            f"One clinical note is on file, written {newest.authored_at.strftime(DATE_FORMAT)}."
         )
     else:
-        parts.append(
-            f"Across {len(notes)} clinical notes between "
-            f"{oldest.authored_at.strftime(DATE_FORMAT)} and "
-            f"{newest.authored_at.strftime(DATE_FORMAT)}, the most recent entry reports: "
-            f"{newest.content}"
+        paragraphs.append(
+            f"{len(notes)} clinical notes are on file, spanning "
+            f"{oldest.authored_at.strftime(DATE_FORMAT)} to "
+            f"{newest.authored_at.strftime(DATE_FORMAT)}."
         )
 
-    if patient.last_visit_at:
-        parts.append(f"Last seen {patient.last_visit_at.strftime(DATE_FORMAT)}.")
-    else:
-        parts.append("No visit has been recorded.")
+    # Its own line: when the patient was seen is a separate fact from how many
+    # notes exist.
+    paragraphs.append(
+        f"The patient was last seen {patient.last_visit_at.strftime(DATE_FORMAT)}."
+        if patient.last_visit_at
+        else "No visit has been recorded."
+    )
 
-    return " ".join(parts)
+    paragraphs.append(
+        f"Most recent note, {newest.authored_at.strftime(DATE_FORMAT)}: {newest.content}"
+    )
+    return paragraphs
 
 
 class SummaryService:

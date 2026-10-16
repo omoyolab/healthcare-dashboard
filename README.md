@@ -25,7 +25,7 @@ FastAPI backend, PostgreSQL.
 
 ## Quick start
 
-Requires Docker (with Compose v2). Nothing else — no local Python, Node or Postgres.
+Requires Docker with Compose v2. Nothing else: no local Python, Node or Postgres.
 
 ```bash
 cp .env.example .env     # safe local defaults, no edits needed
@@ -55,7 +55,8 @@ make lint      # ruff, mypy, eslint, tsc
 
 ## What this does
 
-- Browse, search, sort and page a patient list that stays responsive at 100+ rows
+- Browse, search, sort and page a patient list that stays responsive at 100+ rows,
+  with a rows-per-page control (25/50/100)
 - View a patient profile with their clinical notes
 - Add and delete clinical notes
 - Read a generated, human-readable patient summary built from profile + notes
@@ -63,6 +64,26 @@ make lint      # ruff, mypy, eslint, tsc
 - Light/dark theme, responsive down to small screens
 
 ---
+
+## Screens
+
+**Dashboard** — counts from a single aggregate query, plus the status breakdown.
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+**Patient list** — search, status filters, sortable columns and paging, all held
+in the URL so a view can be shared or reloaded.
+
+![Patient list](docs/screenshots/patients.png)
+
+**Patient detail** — the generated summary, the record it was built from, and
+the clinical notes.
+
+![Patient detail](docs/screenshots/patient-detail.png)
+
+**Dark theme** — the same page with one token set swapped.
+
+![Patient detail in dark theme](docs/screenshots/patient-detail-dark.png)
 
 ## Architecture at a glance
 
@@ -95,7 +116,7 @@ Two rules hold this together:
    lives in the TanStack Query cache and is never copied into a store. Only
    genuinely client-side state (theme, sidebar) lives in Zustand. This is the
    single biggest source of bugs in dashboards of this shape, so it is a rule,
-   not a preference — see [ADR 0002](docs/adr/0002-frontend-stack.md).
+   not a preference. See [ADR 0002](docs/adr/0002-frontend-stack.md).
 
 Full detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -123,8 +144,8 @@ Full detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | React Router                  | Route-based code splitting, and the URL as the source of truth for list filters.                                                   |
 | Tailwind v4 + headless primitives | Tokens in CSS variables mean theming is one token swap, not duplicated class lists. Primitives are local files, so no fighting a component library's opinions. |
 | react-hook-form + Zod         | Uncontrolled inputs (fewer re-renders) and one schema that produces both runtime validation and the TypeScript type.               |
-| TanStack Virtual              | Windowing for long lists while keeping real table semantics for screen readers.                                                    |
-| Vitest + RTL + Playwright + MSW | Unit/component tests against the real provider tree, E2E against the composed stack.                                               |
+| lucide-react                  | Icons, imported per icon so only the ones used are bundled.                                                                        |
+| Vitest + RTL + Playwright     | Component tests against the real provider tree, E2E against the composed stack.                                                    |
 
 Exact versions are pinned in `frontend/package.json` and `backend/pyproject.toml`.
 
@@ -154,6 +175,19 @@ The app reads config **only** through `backend/app/core/config.py` and
 
 ---
 
+### After changing dependencies
+
+Dependencies live inside the images, so a new package needs a rebuild of that
+service:
+
+```bash
+npm install <package> --prefix frontend   # or edit backend/pyproject.toml
+docker compose up -d --build web          # or: --build api migrate
+```
+
+Editing source does not need a rebuild. Both services mount their source and
+reload automatically.
+
 ## Local development without Docker
 
 <details>
@@ -167,7 +201,7 @@ alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
-Needs a reachable Postgres — `docker compose up db` is the easy way.
+Needs a reachable Postgres. `docker compose up db` is the easy way.
 </details>
 
 <details>
@@ -188,9 +222,10 @@ Base path `/api/v1`, except `/health`. Interactive docs at `/docs`.
 
 | Method   | Path                              | Purpose                               |
 | -------- | --------------------------------- | ------------------------------------- |
-| `GET`    | `/health`                         | Liveness — `{"status": "ok"}`         |
-| `GET`    | `/health/ready`                   | Readiness — 503 if the database is down |
+| `GET`    | `/health`                         | Liveness. Returns `{"status": "ok"}`  |
+| `GET`    | `/health/ready`                   | Readiness. 503 if the database is down |
 | `GET`    | `/patients`                       | List: paginate, search, filter, sort  |
+| `GET`    | `/patients/stats`                 | Dashboard counts in one aggregate     |
 | `POST`   | `/patients`                       | Create                                |
 | `GET`    | `/patients/{id}`                  | Fetch one                             |
 | `PUT`    | `/patients/{id}`                  | Update                                |
@@ -268,13 +303,14 @@ make test-e2e                           # playwright against the composed stack
 | -------------------- | -------------------- | ------------------------------------------------------------------------- |
 | Backend unit         | pytest               | Summary generation and pagination rules, no DB or HTTP                    |
 | Backend integration  | pytest + httpx       | Real routes against real Postgres: status codes, validation, paging       |
-| Frontend component   | Vitest + RTL + MSW   | Form validation, server-error mapping, non-blocking search                |
+| Frontend component   | Vitest + RTL         | Form validation, server-error mapping, non-blocking search                |
 | E2E                  | Playwright           | The main journey, plus an axe accessibility scan                          |
 
 Integration tests use a real database on purpose. Mocking the DB would pass while
 the SQL is wrong, which is the one thing those tests exist to catch.
 
-Coverage: **97%** of `app/` (49 tests). Integration tests create and migrate a
+**55 backend tests** (97% coverage of `app/`), **37 frontend tests**, **22 end-to-end
+tests**. Integration tests create and migrate a
 throwaway `healthcare_test` database, so `make up` (or at least the `db` service)
 must be running first.
 
@@ -317,9 +353,9 @@ API numbers are the mean of 20 requests, browser numbers come from
 
 Typing seven characters into search takes **42ms** with a request in flight.
 
-**Row virtualization was measured and declined** — the API caps `page_size` at
-100, so the rendered row count is bounded by the contract and there is nothing
-to virtualize ([ADR 0007](docs/adr/0007-measured-performance.md)).
+**Row virtualization was measured and declined.** The API caps `page_size` at
+100, so the number of rendered rows is bounded by the contract and there is
+nothing to virtualize. See [ADR 0007](docs/adr/0007-measured-performance.md).
 
 What the numbers do support:
 
@@ -332,8 +368,8 @@ What the numbers do support:
   never wait on a render or a request.
 - **Route-level code splitting.** Each page is its own chunk; the dashboard
   chart is plain CSS, so no charting library is shipped at all.
-- **Targeted memoization.** Memoized rows and stable callbacks — applied where a
-  profile showed re-renders, not sprinkled by reflex.
+- **Targeted memoization.** Memoized rows and stable callbacks, applied where a
+  profile showed re-renders rather than everywhere by reflex.
 
 
 ---

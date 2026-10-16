@@ -1,3 +1,4 @@
+import { UserPlus } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -22,6 +23,7 @@ export function PatientListPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold text-content">Patients</h1>
         <Link to="/patients/new" className={buttonStyles({ size: "sm" })}>
+          <UserPlus aria-hidden className="size-4" />
           Add patient
         </Link>
       </div>

@@ -1,7 +1,7 @@
 # Data model
 
-Two tables. Small enough to read in one sitting, and every column and index below
-exists for a reason stated here.
+Two tables. Every column and index below exists for a reason, and the reason is
+written next to it.
 
 ```
 ┌─────────────────────────────┐          ┌─────────────────────────────┐
@@ -24,152 +24,151 @@ exists for a reason stated here.
 └─────────────────────────────┘
 ```
 
----
+## patients
 
-## `patients`
+| Column           | Type             | Null | Default             | Notes                                      |
+| ---------------- | ---------------- | ---- | ------------------- | ------------------------------------------ |
+| `id`             | `uuid`           | no   | `gen_random_uuid()` | primary key                                |
+| `first_name`     | `text`           | no   |                     | `CHECK (length(trim(first_name)) > 0)`     |
+| `last_name`      | `text`           | no   |                     | same check                                 |
+| `date_of_birth`  | `date`           | no   |                     | `CHECK (date_of_birth < current_date)`     |
+| `email`          | `citext`         | yes  |                     | `UNIQUE`, case-insensitive by column type  |
+| `phone`          | `text`           | yes  |                     |                                            |
+| `address_line1`  | `text`           | yes  |                     |                                            |
+| `address_line2`  | `text`           | yes  |                     |                                            |
+| `city`           | `text`           | yes  |                     |                                            |
+| `state`          | `text`           | yes  |                     |                                            |
+| `postal_code`    | `text`           | yes  |                     |                                            |
+| `blood_type`     | `blood_type`     | yes  |                     | enum: `A+ A- B+ B- AB+ AB- O+ O-`          |
+| `allergies`      | `text[]`         | no   | `'{}'`              | empty array means none recorded            |
+| `conditions`     | `text[]`         | no   | `'{}'`              | same                                       |
+| `status`         | `patient_status` | no   | `'active'`          | enum: `active inactive discharged`         |
+| `last_visit_at`  | `timestamptz`    | yes  |                     | null means never seen                      |
+| `created_at`     | `timestamptz`    | no   | `now()`             |                                            |
+| `updated_at`     | `timestamptz`    | no   | `now()`             | set by the ORM on update                   |
 
-| Column           | Type          | Null | Default    | Notes                                                 |
-| ---------------- | ------------- | ---- | ---------- | ----------------------------------------------------- |
-| `id`             | `uuid`        | no   | `gen_random_uuid()` | PK                                           |
-| `first_name`     | `text`        | no   | —          | `CHECK (length(trim(first_name)) > 0)`                |
-| `last_name`      | `text`        | no   | —          | same check                                            |
-| `date_of_birth`  | `date`        | no   | —          | `CHECK (date_of_birth < current_date)`                |
-| `email`          | `citext`      | yes  | —          | `UNIQUE` — case-insensitive by column type            |
-| `phone`          | `text`        | yes  | —          |                                                       |
-| `address_line1`  | `text`        | yes  | —          |                                                       |
-| `address_line2`  | `text`        | yes  | —          |                                                       |
-| `city`           | `text`        | yes  | —          |                                                       |
-| `state`          | `text`        | yes  | —          |                                                       |
-| `postal_code`    | `text`        | yes  | —          |                                                       |
-| `blood_type`     | `blood_type`  | yes  | —          | enum: `A+ A- B+ B- AB+ AB- O+ O-`                     |
-| `allergies`      | `text[]`      | no   | `'{}'`     | never null — an empty array means "none recorded"     |
-| `conditions`     | `text[]`      | no   | `'{}'`     | same                                                  |
-| `status`         | `patient_status` | no | `'active'` | enum: `active inactive discharged`                   |
-| `last_visit_at`  | `timestamptz` | yes  | —          | null = never seen                                     |
-| `created_at`     | `timestamptz` | no   | `now()`    |                                                       |
-| `updated_at`     | `timestamptz` | no   | `now()`    | bumped by the ORM on update                           |
+### Why the columns look like this
 
-### Column decisions
+**Age is not stored.** Only `date_of_birth` is. A stored age is wrong the day
+after you write it, and no constraint can protect you from that. Age is
+calculated when a patient is read.
 
-**Age is not a column.** `date_of_birth` is stored and age is derived on read. A
-stored age is incorrect the day after it is written, and nothing in the schema can
-protect you from that.
+**Email uses `citext` instead of a lowercase index.** The column type carries the
+rule, so no query can bypass it by forgetting `lower()`. It needs the `citext`
+extension, which the first migration creates.
 
-**`citext` for email, not `lower(email)` plus an index.** The column type carries
-the rule, so no query can accidentally bypass it. Needs the `citext` extension,
-created in the first migration.
+**Status and blood type are real Postgres enums**, not free text with a check
+constraint. An invalid value then becomes impossible to insert from anywhere,
+including a manual `psql` session, and the allowed values show up in the
+generated OpenAPI schema.
 
-**Enums as real Postgres types,** not free text with a `CHECK`. An invalid status
-becomes impossible to insert from anywhere, including a `psql` session, and the
-type appears in the generated OpenAPI schema.
+**Allergies and conditions are `text[]` columns.** This is a trade-off worth
+stating plainly. An array cannot hold extra detail per item, such as severity or
+a date recorded, and there is nothing stopping two spellings of the same word.
+It is right for this app because the UI shows them as tags and never searches
+across patients by allergy. If either of those changes, they become their own
+tables with a foreign key, which is a migration rather than a redesign.
 
-**`text[]` for allergies and conditions.** Honest trade-off: this is a denormalised
-list, which means no per-item metadata (severity, date recorded, ICD code) and no
-referential integrity on terminology. It is right for *this* brief — the UI shows
-them as tags and never queries across patients by allergy. The moment either is
-needed, they become `allergies` / `conditions` tables with an FK, which is a
-migration, not a redesign. Documented here so the choice reads as a decision
-rather than an oversight.
+**The array columns are `NOT NULL DEFAULT '{}'`.** A nullable list forces every
+caller to handle null and empty separately, and somebody always forgets.
 
-**`NOT NULL DEFAULT '{}'` on the arrays.** Nullable collections force every
-consumer to handle null and empty separately, and someone always forgets.
-
-**`timestamptz`, never `timestamp`.** A naive timestamp in a clinical record is a
-bug waiting for a timezone.
+**Timestamps are `timestamptz`, never `timestamp`.** A time without a zone in a
+clinical record is a bug waiting for a daylight saving change.
 
 ### Indexes
 
-| Index                                             | Serves                                              |
-| ------------------------------------------------- | --------------------------------------------------- |
-| PK on `id`                                        | detail fetch                                        |
-| `UNIQUE (email)`                                  | the 409 on duplicate, enforced by the database      |
-| `(last_name, first_name)`                         | the default list sort                               |
-| `(last_visit_at)`                                 | the "recent visits" sort — btree scans backwards, so one plain index serves both directions |
-| `(status)`                                        | the status filter and the dashboard counts          |
-| GIN trigram on `first_name ‖ ' ' ‖ last_name ‖ ' ' ‖ coalesce(email,'')` | the `q` search — substring match stays index-backed |
+| Index                                       | Serves                                            |
+| ------------------------------------------- | ------------------------------------------------- |
+| primary key on `id`                         | loading one patient                               |
+| `UNIQUE (email)`                            | the 409 on duplicate email, enforced by the database |
+| `(last_name, first_name)`                   | the default list sort                             |
+| `(last_visit_at)`                           | the recent visits sort. A btree can be scanned in either direction, so one plain index covers ascending and descending |
+| `(status)`                                  | the status filter and the dashboard counts        |
+| GIN trigram on the searchable text          | the `q` search, so substring matching can use an index |
 
-The trigram index is the one worth defending. `ILIKE '%ro%'` cannot use a B-tree,
-so without `pg_trgm` the search degrades to a sequential scan. At 20 seeded rows
-nobody notices; the list has to stay responsive well past that, so the index goes
-in now while it is one line in a migration.
+The trigram index is the one that needs explaining. `ILIKE '%ro%'` cannot use a
+btree index, so without `pg_trgm` every search is a full table scan. At 20 rows
+nobody notices, but the list is meant to stay fast well beyond that, so the index
+goes in while it is still one line in a migration.
 
-It indexes the three searchable fields as one concatenated expression, which is
-what lets a single `ILIKE` match across name and email. Because it is an
-expression index, Alembic autogenerate cannot express it; it is created in the
-initial migration and excluded from autogenerate comparison in `migrations/env.py`
-so it is never reported as a stray index.
+It indexes the name and email fields as a single joined expression, which is what
+lets one `ILIKE` match across all of them. Alembic cannot generate an expression
+index automatically, so it is written by hand in the first migration and excluded
+from autogenerate comparison in `migrations/env.py`. Otherwise every future
+autogenerate would offer to delete it.
 
----
+## clinical_notes
 
-## `clinical_notes`
+| Column        | Type          | Null | Default             | Notes                                              |
+| ------------- | ------------- | ---- | ------------------- | -------------------------------------------------- |
+| `id`          | `uuid`        | no   | `gen_random_uuid()` | primary key                                        |
+| `patient_id`  | `uuid`        | no   |                     | foreign key to `patients.id`, `ON DELETE CASCADE`  |
+| `authored_at` | `timestamptz` | no   | `now()`             | when the note was written clinically               |
+| `content`     | `text`        | no   |                     | `CHECK (length(trim(content)) BETWEEN 1 AND 5000)` |
+| `created_at`  | `timestamptz` | no   | `now()`             | when the row was inserted                          |
+| `updated_at`  | `timestamptz` | no   | `now()`             |                                                    |
 
-| Column        | Type          | Null | Default               | Notes                                            |
-| ------------- | ------------- | ---- | --------------------- | ------------------------------------------------ |
-| `id`          | `uuid`        | no   | `gen_random_uuid()`   | PK                                               |
-| `patient_id`  | `uuid`        | no   | —                     | FK → `patients.id`, `ON DELETE CASCADE`          |
-| `authored_at` | `timestamptz` | no   | `now()`               | when the note was written clinically             |
-| `content`     | `text`        | no   | —                     | `CHECK (length(trim(content)) BETWEEN 1 AND 5000)` |
-| `created_at`  | `timestamptz` | no   | `now()`               | when the row was inserted                        |
-| `updated_at`  | `timestamptz` | no   | `now()`               |                                                  |
+`authored_at` and `created_at` are both kept because they are genuinely
+different. A clinician can record today a note about an encounter last week.
+Collapsing them into one column would lose the clinical timeline, which is the
+thing the summary describes.
 
-**`authored_at` and `created_at` are both kept** and are genuinely different: a
-clinician can record a note about an earlier encounter. Collapsing them would lose
-the clinical timeline, which is the thing the summary narrates.
+`ON DELETE CASCADE` matches the delete behaviour for patients: removing a patient
+must not leave orphaned clinical notes. The database enforces it, so it holds
+even for a manual `DELETE` outside the application.
 
-**`ON DELETE CASCADE`** matches the hard-delete requirement for patients: deleting
-a patient must not leave orphaned clinical notes. Enforced in the database, not in
-application code, so it holds even for a manual `DELETE`.
+Notes are append only. There is no update endpoint, because a note records what
+was observed at a point in time. A correction belongs in a new note rather than
+in an edit that rewrites history.
 
 ### Indexes
 
-| Index                                | Serves                                              |
-| ------------------------------------ | --------------------------------------------------- |
-| PK on `id`                           | delete by id                                        |
-| `(patient_id, authored_at)`          | the only read pattern: a patient's notes, newest first |
+| Index                            | Serves                                              |
+| -------------------------------- | --------------------------------------------------- |
+| primary key on `id`              | deleting one note                                   |
+| `(patient_id, authored_at)`      | the only read pattern: one patient's notes, newest first |
 
-One composite index rather than two single-column ones — it covers both the FK
-lookup and the sort in one scan. No `DESC` on `authored_at`: a btree can be
-scanned in either direction, and the explicit direction only earns its keep for
-mixed-direction sorts, which this table does not have.
-
----
+One composite index rather than two single column ones, because it covers both
+the foreign key lookup and the sort in a single scan. There is no `DESC` on
+`authored_at` since a btree can be read backwards, and an explicit direction only
+pays off for sorts that mix directions.
 
 ## Migrations
 
-Alembic, one revision per change, in `backend/migrations/versions/`. The initial
+Alembic, one revision per change, in `backend/migrations/versions/`. The first
 revision creates the `citext` and `pg_trgm` extensions, both enums, both tables
 and every index above.
 
-`app/db/base.py` sets an explicit constraint naming convention. Without it,
-Alembic autogenerate invents names that differ between machines, and the next
-person's "no changes detected" migration quietly drops and recreates constraints.
+`app/db/base.py` sets a naming convention for constraints. Without it, Alembic
+invents names that differ between machines, and the next autogenerated migration
+quietly drops and recreates constraints.
 
 ```bash
-make migrate                               # upgrade head
-make migration m="add referral source"     # autogenerate a revision
-make downgrade                             # one step back
+make migrate                             # upgrade to head
+make migration m="add referral source"   # autogenerate a revision
+make downgrade                           # step back one revision
 ```
 
-Autogenerated revisions are always read before being committed. Autogenerate is
-good at columns and bad at intent — it cannot see that a rename is a rename rather
-than a drop plus an add.
-
----
+Autogenerated revisions are read before being committed. Autogenerate is good at
+spotting column changes and bad at intent: it cannot tell that a rename is a
+rename rather than a drop plus an add. It also ignores check constraints
+entirely, so `alembic check` passing does not mean the DDL is right.
 
 ## Seed data
 
-`app/db/seed.py`, run on startup when `SEED_ON_STARTUP=true`. 20 patients chosen
-to exercise the UI rather than to look tidy:
+`app/db/seed.py` runs on startup when `SEED_ON_STARTUP=true`. It inserts 20
+patients chosen to exercise the UI rather than to look tidy:
 
-- a spread of ages from infant to 90s, so age derivation is visibly correct
-- all three statuses represented, for the filter and the chart
-- some patients with no email, no address, no allergies, no conditions — null
-  handling is exercised by the seed rather than discovered in production
-- some with no notes at all, one with a dozen, so the summary's empty and
-  long cases both have a live example
-- `last_visit_at` spread over a year, including one null (never seen)
-- a couple of names that collide on the search prefix, so `q` is testable by hand
+- ages from a few months old to 90s, so age calculation is visibly correct
+- all three statuses, for the filter and the dashboard chart
+- some patients with no email, no address, no allergies and no conditions, so
+  null handling is exercised by the seed instead of being found later
+- some with no notes at all and one with six, so the summary has a live example
+  of both the empty and the long case
+- `last_visit_at` spread across a year, including one patient never seen
+- two names that both match the search prefix "ro", so search can be checked by
+  hand
 
-The seed is **idempotent**: it checks for existing data and does nothing if the
-table is populated. It never truncates. Restarting the stack is therefore safe,
-and `make reset` is the explicit way to start clean.
+The seed is idempotent. It checks whether any patients exist and returns early if
+so, and it never truncates. Restarting the stack is therefore safe, and
+`make reset` is the explicit way to start from empty.

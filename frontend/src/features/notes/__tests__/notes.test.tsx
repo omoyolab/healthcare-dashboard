@@ -73,7 +73,7 @@ beforeEach(() => {
           name: "Rosa Delgado",
           age: 45,
           blood_type: "O+",
-          narrative: `Narrative from ${summaryRequests} fetch(es).`,
+          narrative: [`Narrative from ${summaryRequests} fetch(es).`],
           conditions: ["type 2 diabetes"],
           allergies: ["penicillin"],
           note_count: 1,
@@ -101,6 +101,7 @@ test("shows profile, summary and notes", async () => {
   expect(await screen.findByRole("heading", { name: "Rosa Delgado" })).toBeVisible();
   expect(await screen.findByText(/Narrative from/)).toBeVisible();
   expect(await screen.findByText("Glucose control improved.")).toBeVisible();
+  // Allergies live in the profile card, not repeated in the summary.
   expect(screen.getByText("penicillin")).toBeVisible();
 });
 
@@ -142,7 +143,7 @@ test("a failed delete puts the note back", async () => {
     if (url.includes("/notes") && init?.method === "DELETE") {
       return Promise.resolve(json({ detail: "boom" }, 500));
     }
-    if (url.includes("/summary")) return Promise.resolve(json({ narrative: "x", note_count: 1 }));
+    if (url.includes("/summary")) return Promise.resolve(json({ narrative: ["x"], note_count: 1 }));
     if (url.includes("/notes")) return Promise.resolve(json(page([note])));
     return Promise.resolve(json(patient));
   });

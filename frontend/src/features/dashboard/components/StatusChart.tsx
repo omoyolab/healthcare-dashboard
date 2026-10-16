@@ -30,8 +30,6 @@ export function StatusChart({ stats, isLoading }: StatusChartProps) {
     );
   }
 
-  const max = Math.max(...SERIES.map((series) => stats.by_status[series.status]), 1);
-
   return (
     <Card>
       <CardTitle>Status distribution</CardTitle>
@@ -39,6 +37,8 @@ export function StatusChart({ stats, isLoading }: StatusChartProps) {
         {SERIES.map((series) => {
           const value = stats.by_status[series.status];
           const share = stats.total > 0 ? Math.round((value / stats.total) * 100) : 0;
+          // A non-zero group keeps a sliver of width so it stays visible.
+          const barWidth = value > 0 ? Math.max(share, 2) : 0;
 
           return (
             // A wrapper inside <dl> may contain only <dt> and <dd>, so the bar
@@ -49,8 +49,9 @@ export function StatusChart({ stats, isLoading }: StatusChartProps) {
                 <div className="h-2.5 flex-1 rounded-full bg-surface-sunken">
                   <div
                     className={cn("h-full rounded-full", series.bar)}
-                    // Scaled to the largest category so small ones stay visible.
-                    style={{ width: `${Math.round((value / max) * 100)}%` }}
+                    // Width is the share of all patients, so the bar length
+                    // matches the percentage printed beside it.
+                    style={{ width: `${barWidth}%` }}
                   />
                 </div>
                 <span className="w-20 text-right text-sm tabular-nums text-content-muted">

@@ -28,10 +28,14 @@ services:
       # Inside the network the API answers to its service name.
       VITE_API_PROXY: http://api:8000
     volumes:
-      - ./frontend:/app
-      # Anonymous volume keeps the image's node_modules, so a host install (or
-      # a different platform's binaries) cannot shadow them.
-      - /app/node_modules
+      # Only source is mounted. Mounting the whole directory would need an
+      # anonymous volume to protect node_modules, and that volume then survives
+      # rebuilds and serves stale dependencies after a package.json change.
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+      - ./frontend/tsconfig.json:/app/tsconfig.json
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5173/"]
       interval: 10s

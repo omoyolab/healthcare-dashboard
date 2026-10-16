@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Plus } from "lucide-react";
 import { useForm } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
@@ -56,6 +57,7 @@ export function NoteForm({ patientId }: { patientId: string }) {
       )}
 
       <Button type="submit" size="sm" disabled={isSubmitting || addNote.isPending}>
+        <Plus aria-hidden className="size-4" />
         {addNote.isPending ? "Saving…" : "Save note"}
       </Button>
     </form>

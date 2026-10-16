@@ -1,3 +1,4 @@
+import { ArrowLeft, Pencil } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
 import { ErrorState } from "@/components/feedback/ErrorState";
@@ -33,8 +34,12 @@ export function PatientDetailPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link to="/patients" className="text-sm text-content-muted hover:text-content">
-            ← Patients
+          <Link
+            to="/patients"
+            className="inline-flex items-center gap-1 text-sm text-content-muted hover:text-content"
+          >
+            <ArrowLeft aria-hidden className="size-4" />
+            Patients
           </Link>
           <h1 className="text-xl font-semibold text-content">
             {patient.first_name} {patient.last_name}
@@ -46,6 +51,7 @@ export function PatientDetailPage() {
             to={`/patients/${patient.id}/edit`}
             className={buttonStyles({ variant: "secondary", size: "sm" })}
           >
+            <Pencil aria-hidden className="size-4" />
             Edit
           </Link>
           <DeletePatientDialog

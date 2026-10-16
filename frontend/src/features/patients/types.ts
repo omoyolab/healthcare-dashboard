@@ -56,7 +56,8 @@ export interface PatientSummary {
   name: string;
   age: number;
   blood_type: BloodType | null;
-  narrative: string;
+  /** Paragraphs, so the panel can lay them out. */
+  narrative: string[];
   conditions: string[];
   allergies: string[];
   note_count: number;

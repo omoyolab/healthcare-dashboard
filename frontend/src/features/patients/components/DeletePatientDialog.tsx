@@ -1,3 +1,4 @@
+import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -20,6 +21,7 @@ export function DeletePatientDialog({ patientId, patientName }: DeletePatientDia
     <>
       {/* Destructive actions are never one click. */}
       <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        <Trash2 aria-hidden className="size-4" />
         Delete
       </Button>
       <ConfirmDialog

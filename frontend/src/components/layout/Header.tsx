@@ -1,12 +1,13 @@
+import { LayoutDashboard, Menu, Moon, Sun, Users, type LucideIcon } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 import { useUiStore } from "@/store/ui.store";
 
-const NAV = [
-  { to: "/", label: "Dashboard" },
-  { to: "/patients", label: "Patients" },
+const AREAS: { to: string; label: string; icon: LucideIcon }[] = [
+  { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/patients", label: "Patients", icon: Users },
 ];
 
 export function Header() {
@@ -26,29 +27,34 @@ export function Header() {
           aria-expanded={sidebarOpen}
           onClick={() => setSidebarOpen(!sidebarOpen)}
         >
-          <span aria-hidden>☰</span>
+          <Menu aria-hidden className="size-5" />
         </Button>
 
         <span className="font-semibold text-content">Northgate Practice</span>
 
-        <nav aria-label="Main" className="ml-6 hidden gap-1 md:flex">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === "/"}
-              className={({ isActive }) =>
-                cn(
-                  "rounded-md px-3 py-1.5 text-sm",
-                  isActive
-                    ? "bg-surface-sunken font-medium text-content"
-                    : "text-content-muted hover:text-content",
-                )
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
+        <nav aria-label="Main" className="ml-6 hidden h-14 items-stretch gap-1 md:flex">
+          {AREAS.map((area) => {
+            const Icon = area.icon;
+            return (
+              <NavLink
+                key={area.to}
+                to={area.to}
+                end={area.to === "/"}
+                className={({ isActive }) =>
+                  cn(
+                    // The underline marks the area; the sidebar marks the page.
+                    "flex items-center gap-2 border-b-2 px-3 text-sm transition-colors",
+                    isActive
+                      ? "border-accent font-medium text-accent"
+                      : "border-transparent text-content-muted hover:text-content",
+                  )
+                }
+              >
+                <Icon aria-hidden className="size-4" />
+                {area.label}
+              </NavLink>
+            );
+          })}
         </nav>
 
         <Button
@@ -58,7 +64,11 @@ export function Header() {
           aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
           onClick={toggleTheme}
         >
-          <span aria-hidden>{theme === "dark" ? "☀" : "☾"}</span>
+          {theme === "dark" ? (
+            <Sun aria-hidden className="size-5" />
+          ) : (
+            <Moon aria-hidden className="size-5" />
+          )}
         </Button>
       </div>
     </header>

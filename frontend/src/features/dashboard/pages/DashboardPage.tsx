@@ -5,6 +5,7 @@ import { buttonStyles } from "@/components/ui/button";
 import { usePatientStats } from "@/features/patients/api/patients.queries";
 
 import { StatTiles } from "../components/StatTiles";
+import { RecentPatients } from "../components/RecentPatients";
 import { StatusChart } from "../components/StatusChart";
 
 export function DashboardPage() {
@@ -26,6 +27,7 @@ export function DashboardPage() {
           <StatTiles stats={data} isLoading={isLoading} />
           <div className="grid gap-4 lg:grid-cols-2">
             <StatusChart stats={data} isLoading={isLoading} />
+            <RecentPatients />
           </div>
         </>
       )}

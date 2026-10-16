@@ -77,7 +77,7 @@ log line for that request.
 | 404  | Resource does not exist, or note does not belong to that patient     |
 | 409  | Conflicts with an existing resource                                  |
 | 422  | Body or query parameters failed validation                           |
-| 500  | Unhandled server error — generic message, `request_id` for support   |
+| 500  | Unhandled server error. Generic message, with `request_id` for support |
 
 ---
 
@@ -116,8 +116,8 @@ a process that is working correctly.
 | ----------- | ------- | ------- | -------------------------------------------------------------------------------- |
 | `page`      | int     | `1`     | ≥ 1                                                                              |
 | `page_size` | int     | `25`    | 1–100; above the max → 422 rather than silently clamped                          |
-| `q`         | string  | —       | Case-insensitive match on first name, last name, email                           |
-| `status`    | enum    | —       | `active` \| `inactive` \| `discharged`; repeatable                               |
+| `q`         | string  | none    | Case-insensitive match on first name, last name, email                           |
+| `status`    | enum    | none    | `active` \| `inactive` \| `discharged`; repeatable                               |
 | `sort`      | string  | `last_name` | Allow-listed field, `-` prefix for descending: `last_name`, `-last_visit_at`, `date_of_birth`, `created_at` |
 
 Sort fields are validated against an enum, never interpolated into SQL.
@@ -149,9 +149,26 @@ GET /api/v1/patients?page=1&page_size=2&q=ro&sort=-last_visit_at
 }
 ```
 
-The list response is a **summary** projection — it carries what the table renders
-and nothing more. Allergies, conditions and address come back only from the detail
+The list response is a summary projection. It carries what the table renders and
+nothing more. Allergies, conditions and address come back only from the detail
 endpoint, so the list payload stays small as the record grows.
+
+### `GET /api/v1/patients/stats`
+
+Counts for the dashboard, computed in one statement with Postgres `FILTER`
+aggregates rather than one request per status.
+
+```json
+{
+  "total": 20,
+  "by_status": { "active": 17, "inactive": 2, "discharged": 1 },
+  "never_seen": 2,
+  "seen_last_30_days": 9
+}
+```
+
+This route is declared before `/patients/{id}`, otherwise "stats" would be
+matched as a patient id and return 422.
 
 ### `GET /api/v1/patients/{id}`
 
@@ -182,8 +199,8 @@ load progressively).
 }
 ```
 
-`age` is computed from `date_of_birth` on read and is not stored — a stored age is
-wrong the next day.
+`age` is computed from `date_of_birth` on read and is not stored, because a
+stored age is wrong the next day.
 
 ### `POST /api/v1/patients`
 
@@ -284,8 +301,9 @@ Returns 201.
 
 ### `DELETE /api/v1/patients/{id}/notes/{note_id}`
 
-Returns 204. A `note_id` that exists but belongs to another patient returns 404 —
-not 403, which would confirm the note exists to a caller who should not know.
+Returns 204. A `note_id` that exists but belongs to another patient returns 404
+rather than 403, because 403 would confirm the note exists to someone who should
+not know.
 
 ---
 
@@ -301,14 +319,23 @@ Human-readable synthesis of the profile plus notes.
   "name": "Rosa Delgado",
   "age": 45,
   "blood_type": "O+",
-  "narrative": "Rosa Delgado is a 45-year-old patient with blood type O+, currently active. Care is ongoing for type 2 diabetes. Documented allergies: penicillin, latex. Across 4 clinical notes between 12 Mar 2026 and 28 Sep 2026, the most recent visit reports improved glucose control on the current regimen…",
+  "narrative": [
+    "Rosa Delgado is a 45-year-old patient, blood type O+, currently active. Care is ongoing for type 2 diabetes. Allergies are recorded for penicillin and latex.",
+    "6 clinical notes are on file, spanning 20 Mar 2026 to 29 Sep 2026.",
+    "The patient was last seen 29 Sep 2026.",
+    "Most recent note, 29 Sep 2026: Dizziness resolved. HbA1c 6.9%. Glucose control improved on current regimen."
+  ],
   "conditions": ["type 2 diabetes"],
   "allergies": ["penicillin", "latex"],
-  "note_count": 4,
+  "note_count": 6,
   "generated_by": "template",
   "generated_at": "2026-10-17T09:12:00Z"
 }
 ```
+
+`narrative` is a list of paragraphs rather than one string: who the patient is,
+the note history, when they were last seen, and the most recent note quoted. Splitting prose in the client
+would break on abbreviations and decimals such as "HbA1c 6.9%".
 
 `generated_by` is `template`: generation is deterministic, needs no network and
 no key, and cannot invent a clinical fact that is not in the record. The field

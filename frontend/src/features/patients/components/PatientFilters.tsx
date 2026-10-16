@@ -1,3 +1,4 @@
+import { Check, Search } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -39,38 +40,63 @@ export function PatientFilters({ params, update, toggleStatus }: ListParams) {
         <label htmlFor="patient-search" className="sr-only">
           Search patients
         </label>
-        <Input
-          id="patient-search"
-          type="search"
-          placeholder="Search by name or email"
-          value={term}
-          onChange={(event) => {
-            setTerm(event.target.value);
-            pushQuery(event.target.value);
-          }}
-        />
+        <div className="relative">
+          <Search
+            aria-hidden
+            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-content-muted"
+          />
+          <Input
+            id="patient-search"
+            type="search"
+            className="pl-9"
+            placeholder="Search by name or email"
+            value={term}
+            onChange={(event) => {
+              setTerm(event.target.value);
+              pushQuery(event.target.value);
+            }}
+          />
+        </div>
       </div>
 
-      <div className="flex items-center gap-1.5" role="group" aria-label="Filter by status">
-        {PATIENT_STATUSES.map((status) => {
-          const active = params.status.includes(status);
-          return (
-            <Button
-              key={status}
-              variant={active ? "primary" : "secondary"}
-              size="sm"
-              aria-pressed={active}
-              onClick={() => toggleStatus(status)}
-            >
-              {STATUS_LABELS[status]}
-            </Button>
-          );
-        })}
-        {params.status.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={() => update({ status: [] })}>
-            Clear
+      <div className="flex items-center gap-2">
+        <span id="status-filter-label" className="text-sm text-content-muted">
+          Status
+        </span>
+        {/* Multi-select: each status toggles on its own, so "inactive" and
+            "discharged" can be shown together. "All" is the no-filter state,
+            which is otherwise indistinguishable from having every status
+            selected. */}
+        <div
+          role="group"
+          aria-labelledby="status-filter-label"
+          className="flex items-center gap-1.5"
+        >
+          <Button
+            variant={params.status.length === 0 ? "primary" : "secondary"}
+            size="sm"
+            aria-pressed={params.status.length === 0}
+            onClick={() => update({ status: [] })}
+          >
+            {params.status.length === 0 && <Check aria-hidden className="size-3.5" />}
+            All
           </Button>
-        )}
+          {PATIENT_STATUSES.map((status) => {
+            const active = params.status.includes(status);
+            return (
+              <Button
+                key={status}
+                variant={active ? "primary" : "secondary"}
+                size="sm"
+                aria-pressed={active}
+                onClick={() => toggleStatus(status)}
+              >
+                {active && <Check aria-hidden className="size-3.5" />}
+                {STATUS_LABELS[status]}
+              </Button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="flex items-center gap-2">

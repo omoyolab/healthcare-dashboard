@@ -42,7 +42,8 @@ test("create, annotate, edit and delete a patient", async ({ page }) => {
   await page.getByLabel("Add a clinical note").fill("Initial consultation completed.");
   await page.getByRole("button", { name: "Save note" }).click();
   await expect(page.getByText("Initial consultation completed.").first()).toBeVisible();
-  await expect(page.getByText(/A single clinical note from/)).toBeVisible();
+  // The summary is rebuilt from the notes, so the narrative changes too.
+  await expect(page.getByText(/One clinical note is on file/)).toBeVisible();
 
   // Edit: status change is reflected on the detail page.
   await page.getByRole("link", { name: "Edit" }).click();

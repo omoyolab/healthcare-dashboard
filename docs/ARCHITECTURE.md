@@ -1,224 +1,209 @@
 # Architecture
 
-How the system is put together, and the rules that keep it that way as it grows.
-Decisions with real alternatives live in [adr/](adr/); this document is the map.
-
----
+How the system fits together, and the rules that keep it consistent as it grows.
+Decisions that had real alternatives are recorded in [adr/](adr/). This file is
+the map.
 
 ## 1. Shape of the system
 
-Three processes, one network. The frontend is a static bundle; all state lives in
-Postgres; the API is the only thing that talks to the database.
+There are three processes on one network. The frontend is a static bundle of
+files. All data lives in Postgres. The API is the only thing that talks to the
+database.
 
 ```
-web (nginx / vite dev)  ──HTTP/JSON──►  api (FastAPI, async)  ──asyncpg──►  db (Postgres)
+web (nginx, or vite in dev)  --HTTP/JSON-->  api (FastAPI)  --asyncpg-->  db (Postgres)
 ```
 
-Nothing is shared between frontend and backend at build time — no shared package,
-no generated client (yet). The contract between them is HTTP + OpenAPI, and the
-places where that contract is mirrored by hand are listed in
-[ADR 0005](adr/0005-error-contract.md) as a known risk rather than pretended away.
-
----
+The frontend and backend share no code at build time. There is no shared package
+and no generated client. The only contract between them is HTTP plus the OpenAPI
+schema. A few types are copied by hand on the frontend, and that risk is written
+down in [ADR 0005](adr/0005-error-contract.md) rather than ignored.
 
 ## 2. Backend layers
 
+The backend has four layers:
+
 ```
-app/api/v1/*.py      HTTP only      request/response, status codes, OpenAPI
-      │
-      ▼
-app/services/*.py    use cases      business rules, invariants, orchestration
-      │
-      ▼
-app/repositories/*   persistence    every SQL statement in the codebase
-      │
-      ▼
-app/models/*.py      mapping        SQLAlchemy ORM, table definitions
+app/api/v1/       HTTP only: reads the request, returns a response and a status code
+app/services/     business rules and use cases
+app/repositories/ every SQL statement in the codebase
+app/models/       SQLAlchemy models, which describe the database tables
 ```
 
-**The rule:** dependencies point downward, one step at a time. A route may call a
-service. A service may call a repository. Nothing calls upward, and nothing skips
+The rule is that dependencies point downward, one step at a time. A route calls
+a service. A service calls a repository. Nothing calls upward and nothing skips
 a layer.
 
-What each layer may not do is the part that matters:
+What each layer is not allowed to do matters more than what it does:
 
-| Layer        | Must not                                                                  |
-| ------------ | ------------------------------------------------------------------------- |
-| route        | contain business rules, build SQL, or catch domain errors to pick a status |
-| service      | import FastAPI, raise `HTTPException`, or write SQL                       |
-| repository   | enforce business rules or raise domain errors                             |
-| model        | know about requests, services, or Pydantic schemas                        |
+| Layer      | Must not                                                                 |
+| ---------- | ------------------------------------------------------------------------ |
+| route      | contain business rules or build SQL                                      |
+| service    | import FastAPI or raise `HTTPException`                                  |
+| repository | enforce business rules, though it may turn a database constraint error into a domain error |
+| model      | know anything about requests, services or schemas                        |
 
-The payoff is testability. `summary_service` is pure logic over plain objects, so
-its tests need no HTTP client, no database and no network — which is why they run
-in milliseconds and never flake. If a service imported FastAPI, that would be gone.
+The benefit is testing. `summary_service.py` is plain Python over plain objects,
+so its tests run with no HTTP, no database and no network. They finish in
+milliseconds and cannot flake. If that service imported FastAPI, that would be
+gone.
 
-Cross-cutting concerns sit in `app/core/` and are installed once in the app
-factory: settings, logging, middleware, exception handlers, pagination.
+Shared setup lives in `app/core/`: settings, logging, middleware, error handlers
+and pagination. It is installed once by the `create_app()` factory.
 
-### Request lifecycle
+### What happens during one request
 
 ```
 request
-  → middleware: assign request_id, start timer, bind log context
-  → route: Pydantic validates the body/query (422 on failure, before any logic runs)
-  → deps: open a session, build the service
-  → service: enforce rules, call repositories
-  → repository: one SQL statement
-  → session: commit on success, rollback on exception
-  → route: serialise through response_model
-  → middleware: access log (method, path, status, duration_ms, request_id)
+  -> middleware assigns a request_id and starts a timer
+  -> route: Pydantic validates the body and query (422 if invalid)
+  -> deps: open a database session, build the service
+  -> service: apply the rules, call repositories
+  -> repository: run one SQL statement
+  -> session: commit if it worked, roll back if it did not
+  -> route: serialise the response through the response model
+  -> middleware writes an access log with status and duration
 response
 ```
 
-Two things to notice. Validation happens **before** any business logic, so
-services can assume well-formed input. The transaction boundary is owned by the
-session dependency, not by services — so a service cannot leave a half-committed
-write behind, and nothing has to remember to commit.
+Two details are worth pointing out. Validation happens before any business
+logic, so services can assume the input is well formed. The session dependency
+owns the transaction, so a service cannot leave a half written change behind and
+nothing has to remember to commit.
 
-### Why a repository layer at all
+### Why there is a repository layer
 
-Fair question — SQLAlchemy is already an abstraction. Two concrete reasons here:
+SQLAlchemy is already a layer over SQL, so this one needs justifying. Two
+reasons:
 
-1. The list query (filter + sort + page + count, in one statement) is the most
-   intricate code in the backend. Having it in one named place, rather than
-   inline in a route, is the difference between tuning it and rewriting it.
-2. Services get unit-tested against a fake repository. No database needed to
-   prove a business rule.
+1. The list query does filtering, sorting, paging and counting in a single
+   statement. It is the most intricate code in the backend and it belongs in one
+   named place where it can be tuned.
+2. Services can be tested against a fake repository, so a business rule can be
+   checked without a database.
 
-What it is *not* for: swapping Postgres for another database. That never happens,
-and designing for it would mean giving up Postgres-specific features we want.
-
----
+It is not there so Postgres can be swapped for another database. That almost
+never happens, and designing for it would mean giving up the Postgres features
+this app uses (`citext`, `pg_trgm`, array columns).
 
 ## 3. Frontend structure
 
-### Vertical slices, not file-type folders
+Files are grouped by feature rather than by file type:
 
 ```
 src/features/patients/
-├── api/          HTTP calls + query/mutation hooks + key factory
-├── components/   UI for this feature only
-├── hooks/        feature-specific logic
-├── pages/        route entrypoints
-├── schemas/      Zod schema (validation + inferred types)
+├── api/          HTTP calls, query hooks, cache keys
+├── components/   UI used only by this feature
+├── hooks/        logic used only by this feature
+├── pages/        the components a route renders
+├── schemas/      Zod schema, which also produces the TypeScript type
 └── types.ts
 ```
 
-A change to patients touches one directory. The alternative — `components/`,
-`hooks/`, `services/` at the root — means every feature change is a tour of the
-repo, and nothing tells you which files belong together.
+A change to patients touches one directory. The alternative, folders named
+`components/`, `hooks/` and `services/` at the top level, means every feature
+change is a tour of the repository and nothing shows which files belong
+together.
 
-Shared code moves out only once a second feature actually needs it:
-`components/ui/` (primitives), `components/layout/`, `components/feedback/`,
-`lib/` (api client, config, utils).
+Code moves out to `components/ui`, `components/layout`, `components/feedback` or
+`lib/` only when a second feature actually needs it.
 
-### State ownership — the one rule to not break
+### Which part of the app owns which state
 
-| Kind of state                | Lives in               | Example                      |
-| ---------------------------- | ---------------------- | ---------------------------- |
-| Server data                  | TanStack Query cache   | patients, notes, summary     |
-| URL / view state             | the URL (`useSearchParams`) | search text, sort, page, status filter |
-| Client-only UI state         | Zustand                | theme, sidebar open          |
-| Ephemeral form state         | react-hook-form        | field values, touched, errors |
+This is the rule that prevents most dashboard bugs:
 
-Server data is **never** copied into Zustand or `useState`. The moment it is, you
-own cache invalidation by hand and the app starts showing stale rows after a save.
-Keeping list state in the URL is what makes the view shareable, back-button
-correct and reload-safe — for free.
+| Kind of state                | Lives in                    | Example                       |
+| ---------------------------- | --------------------------- | ----------------------------- |
+| Data from the server         | TanStack Query cache        | patients, notes, summary      |
+| View state                   | the URL (`useSearchParams`) | search text, sort, page, filter |
+| Client-only UI state         | Zustand                     | theme, sidebar open           |
+| Form values being typed      | react-hook-form             | field values and errors       |
 
-### The single network seam
+Server data is never copied into Zustand or `useState`. The moment it is copied,
+you own cache invalidation by hand, and the app starts showing stale rows after
+a save.
 
-Everything goes through `lib/api/client.ts`. Timeouts, the error envelope,
-`request_id` propagation and (later) an auth header are one file, not fifty call
-sites. `lib/api/errors.ts` turns a non-2xx response into a typed `ApiError`, which
-is what lets a 422 become per-field form errors and a 503 become a retry button.
+Keeping search, sort, page and filter in the URL means the view can be shared as
+a link, the back button behaves, and a reload restores what the user had.
 
-### Rendering performance
+### One place where network calls happen
 
-Three mechanisms, applied in this order:
+Every request goes through `lib/api/client.ts`. Timeouts, the error shape,
+request id propagation and any future auth header are changed in one file
+instead of at every call site.
 
-1. **Fetch less** — paged queries, `keepPreviousData` so paging does not flash empty.
-2. **Render less** — row virtualization: mounted rows are bounded by viewport
-   height, not by result count.
-3. **Re-render less** — memoized rows and stable callbacks, applied where a
-   profile showed cost (Step 15 of the build plan).
+`lib/api/errors.ts` converts a failed response into a typed `ApiError`. That is
+what lets the app turn a 422 into messages under the right form fields and a 503
+into a retry button.
 
-In that order on purpose. Memoizing a component that renders 5,000 rows is
-solving the wrong problem.
+## 4. Adding a note, start to finish
 
----
-
-## 4. Data flow: adding a clinical note
-
-Worth tracing because it is the one place where writes have a derived
-side effect.
+This path is worth tracing because a write here changes something else that is
+on screen.
 
 ```
 NoteForm submit
-  → Zod validates (client, instant feedback)
-  → useAddNote mutation: optimistic insert into the notes cache
-  → POST /api/v1/patients/{id}/notes
-      → route: Pydantic validates; 422 if content is empty or authored_at is future
-      → note_service: patient must exist → else PatientNotFound → 404
-      → note_repository: INSERT
-      → commit
-  → onSuccess: invalidate notes AND the patient summary
-  → onError: roll back the optimistic insert, show a retryable error
+  -> Zod validates on the client for instant feedback
+  -> useAddNote inserts the note into the cache optimistically
+  -> POST /api/v1/patients/{id}/notes
+      -> route: Pydantic validates (empty content or a future date is a 422)
+      -> note_service: the patient must exist, otherwise 404
+      -> note_repository: INSERT
+      -> commit
+  -> on success: invalidate the notes list and the patient summary
+  -> on failure: undo the optimistic insert and show a retryable error
 ```
 
-The summary is **derived from notes**, so invalidating only the notes list would
-leave a stale narrative on screen. That coupling is explicit in
-`notes.queries.ts` rather than left for someone to discover.
+The summary is generated from the notes. Invalidating only the notes list would
+leave a narrative on screen that contradicts the notes listed right below it.
+That link is written explicitly in `notes.queries.ts` so nobody has to discover
+it.
 
----
+## 5. How errors work
 
-## 5. Error strategy
+Every failure returns the same body shape (RFC 9457 problem details), produced
+by one module, and carries a `request_id` that also appears in the logs.
 
-One body shape for every failure (RFC 9457 problem details), produced by one
-module, carrying a `request_id` that also appears in the structured logs.
+| Condition                   | Status | Where it comes from                      |
+| --------------------------- | ------ | ---------------------------------------- |
+| Invalid body or query       | 422    | Pydantic, before any logic runs           |
+| Unknown id                  | 404    | service raises `PatientNotFoundError`     |
+| Conflicts with existing data | 409   | service raises `DuplicatePatientEmailError` |
+| Database unreachable        | 503    | readiness probe                           |
+| Anything unhandled          | 500    | catch-all handler, generic message        |
 
-| Condition                   | Status | Raised by                       |
-| --------------------------- | ------ | ------------------------------- |
-| Malformed/invalid body      | 422    | Pydantic, before any logic      |
-| Unknown id                  | 404    | service → `PatientNotFound`     |
-| Business-rule conflict      | 409    | service → `DuplicatePatient`    |
-| Unhandled exception         | 500    | catch-all handler, generic body |
+Services raise their own error types and know nothing about HTTP. Only the
+handler module decides status codes, so that policy sits in one file that can be
+read in a minute. It also means these services could be reused from a worker or
+a CLI without dragging HTTP along.
 
-Services raise domain errors; only the handler module knows about HTTP. That is
-what keeps status-code policy auditable in one file — and what lets us reuse those
-services from a CLI or worker later without dragging HTTP semantics along.
-
-A 500 never includes a stack trace or a database message in the response. In a
-system holding patient data, a leaked internal error is an incident.
-
----
+A 500 response never contains a stack trace or a database message. In a system
+holding patient data, a leaked internal error is a security incident, not an
+untidy log line.
 
 ## 6. Configuration and secrets
 
-Config enters the process in exactly two places: `backend/app/core/config.py` and
-`frontend/src/lib/config/env.ts`. Both parse and validate at startup, so a typo in
-an env var is a boot failure with a clear message, not a mystery 500 an hour later.
-No `os.environ` or `import.meta.env` anywhere else in either codebase.
+Configuration enters the app in exactly two places: `backend/app/core/config.py`
+and `frontend/src/lib/config/env.ts`. Both parse and validate at startup, so a
+missing or misspelled variable stops the process immediately with a clear
+message instead of causing a confusing failure an hour later. No other file
+reads `os.environ` or `import.meta.env`.
 
-Frontend env vars are **public** — they are baked into the bundle. Nothing secret
-goes in a `VITE_` variable; the LLM key lives only on the server.
+Frontend variables are baked into the bundle when it is built, so they are
+public by definition. Nothing secret goes into a `VITE_` variable.
 
----
+## 7. Where the next features would go
 
-## 7. How this grows
+The app is expected to grow. These are the places each likely addition lands:
 
-This system is expected to grow toward multiple user types, more involved
-clinical workflows and realtime updates. The seams that matter for each:
+| Future requirement   | Where it lands                                                      |
+| -------------------- | ------------------------------------------------------------------- |
+| Auth and user roles  | `api/deps.py` gains a `current_user` dependency; services take an actor |
+| Audit log            | the service layer already wraps every write, so one decorator plus an append-only table |
+| A new resource       | copy the five file slice: model, schema, repository, service, router |
+| A new API version    | `api/v2/` next to `v1/`, which is why the version is in the URL now  |
+| Realtime updates     | a WebSocket endpoint publishing cache invalidation events            |
+| Very deep pagination | switch to keyset paging inside the repository; the response envelope never promised offsets |
 
-| Future requirement   | Where it lands                                                                     |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| Auth + RBAC          | `api/deps.py` — a `current_user` dependency; services take an actor argument        |
-| Audit log            | Service layer already wraps every write; one decorator there, plus an append-only table |
-| New resource         | Copy the five-file vertical slice (model, schema, repository, service, router)       |
-| New API version      | `api/v2/` beside `v1/`, both mounted by `api/v1/router.py`'s sibling — URL versioning from day one for this reason |
-| Realtime             | Separate WS endpoint publishing cache-invalidation events; TanStack Query already centralises invalidation |
-| Deep pagination      | Swap to keyset inside the repository — the `Page` envelope does not promise offsets  |
-
-Each of those is a known landing spot, not a built-today abstraction. Building
-them now would be the more common failure mode.
+None of these are built today. They are known landing spots, which is the point
+of the layering.

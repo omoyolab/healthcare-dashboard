@@ -89,8 +89,13 @@ def test_summary_without_notes_says_so(client: TestClient) -> None:
     body = client.get(f"/api/v1/patients/{patient_id}/summary").json()
 
     assert body["note_count"] == 0
-    assert "No clinical notes are on file yet." in body["narrative"]
+    assert "No clinical notes are on file yet." in body["narrative"][-1]
     assert body["generated_by"] == "template"
+    # The clinical fields are still on the response, even when empty: the
+    # interface needs to show "none recorded" rather than nothing.
+    assert body["allergies"] == []
+    assert body["conditions"] == []
+    assert body["blood_type"] is None
 
 
 def test_summary_reflects_notes_and_updates_when_one_is_added(client: TestClient) -> None:
@@ -102,7 +107,7 @@ def test_summary_reflects_notes_and_updates_when_one_is_added(client: TestClient
 
     first = client.get(f"/api/v1/patients/{patient_id}/summary").json()
     assert first["note_count"] == 1
-    assert "Peak flow normal." in first["narrative"]
+    assert "Peak flow normal." in "\n".join(first["narrative"])
 
     client.post(
         f"/api/v1/patients/{patient_id}/notes",
@@ -111,8 +116,9 @@ def test_summary_reflects_notes_and_updates_when_one_is_added(client: TestClient
     second = client.get(f"/api/v1/patients/{patient_id}/summary").json()
 
     assert second["note_count"] == 2
-    assert "Reports a flare." in second["narrative"]
-    assert "Care is ongoing for asthma." in second["narrative"]
+    narrative = "\n".join(second["narrative"])
+    assert "Reports a flare." in narrative
+    assert "Care is ongoing for asthma." in narrative
 
 
 def test_summary_for_unknown_patient_is_404(client: TestClient) -> None:

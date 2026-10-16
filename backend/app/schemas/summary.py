@@ -14,10 +14,11 @@ class PatientSummary(BaseModel):
     name: str
     age: int
     blood_type: BloodType | None
-    narrative: str
+    # Paragraphs rather than one block of text, so the interface can lay them
+    # out. The profile fields below are what the narrative is built from.
+    narrative: list[str]
     conditions: list[str]
     allergies: list[str]
     note_count: int
-    # Surfaced so the UI can be honest with a clinician about what wrote this.
     generated_by: Literal["template"]
     generated_at: datetime

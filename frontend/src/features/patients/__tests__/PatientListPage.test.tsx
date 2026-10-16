@@ -70,3 +70,44 @@ test("shows a retryable error when the request fails", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent("Cannot reach the server");
   expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
 });
+
+test("All is selected when nothing is filtered, and clears the filters", async () => {
+  respondWith(patientPage());
+  const user = userEvent.setup();
+
+  renderWithProviders(<PatientListPage />, { route: "/patients" });
+  await screen.findByRole("link", { name: "Delgado, Rosa" });
+
+  const all = screen.getByRole("button", { name: /All/ });
+  expect(all).toHaveAttribute("aria-pressed", "true");
+
+  await user.click(screen.getByRole("button", { name: /Inactive/ }));
+  expect(all).toHaveAttribute("aria-pressed", "false");
+
+  await user.click(all);
+  expect(screen.getByRole("button", { name: /Inactive/ })).toHaveAttribute("aria-pressed", "false");
+  expect(all).toHaveAttribute("aria-pressed", "true");
+});
+
+test("status filters are multi-select, each toggling on its own", async () => {
+  respondWith(patientPage());
+  const user = userEvent.setup();
+
+  renderWithProviders(<PatientListPage />, { route: "/patients" });
+  await screen.findByRole("link", { name: "Delgado, Rosa" });
+
+  const active = screen.getByRole("button", { name: /Active/ });
+  const inactive = screen.getByRole("button", { name: /Inactive/ });
+
+  await user.click(active);
+  await user.click(inactive);
+
+  // Both stay selected: picking a second status widens the filter.
+  expect(active).toHaveAttribute("aria-pressed", "true");
+  expect(inactive).toHaveAttribute("aria-pressed", "true");
+
+  // Clicking the same button again turns it off.
+  await user.click(active);
+  expect(active).toHaveAttribute("aria-pressed", "false");
+  expect(inactive).toHaveAttribute("aria-pressed", "true");
+});
